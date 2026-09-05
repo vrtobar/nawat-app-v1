@@ -8,6 +8,8 @@ import {
   type DictionaryEntryDetail,
   type DictionaryEntryListItem,
   type DictionarySearchParams,
+  type ImageRendition,
+  ImageRenditionSchema,
   type JwtClaims,
   type Locale,
   type PaginationMeta,
@@ -15,6 +17,7 @@ import {
   type UpdateEntry,
 } from '@nahuat/shared';
 import { ConflictException, Injectable } from '@nestjs/common';
+import { z } from 'zod';
 
 import { isPrismaError, PRISMA_ERROR, uniqueViolationFields } from '../../common/prisma-error';
 import {
@@ -73,6 +76,7 @@ type EntryDetailRow = Prisma.EntryGetPayload<{
     nawatContent: true;
     slug: true;
     imageUrl: true;
+    imageRenditions: true;
     isPublished: true;
     createdAt: true;
     updatedAt: true;
@@ -598,6 +602,7 @@ function readDetailSelect(locale: Locale) {
     nawatContent: true,
     slug: true,
     imageUrl: true,
+    imageRenditions: true,
     isPublished: true,
     createdAt: true,
     updatedAt: true,
@@ -627,6 +632,7 @@ function writeDetailSelect(locale: Locale) {
     nawatContent: true,
     slug: true,
     imageUrl: true,
+    imageRenditions: true,
     isPublished: true,
     createdAt: true,
     updatedAt: true,
@@ -652,12 +658,28 @@ function toEntryDetail(entry: EntryDetailRow, locale: Locale): DictionaryEntryDe
     nawatContent: entry.nawatContent,
     slug: entry.slug,
     imageUrl: entry.imageUrl,
+    imageRenditions: toImageRenditions(entry.imageRenditions),
     isPublished: entry.isPublished,
     creator: { name: entry.creator.name },
     translations: entry.translations.map((t) => toTranslationDetail(t, locale)),
     createdAt: entry.createdAt.toISOString(),
     updatedAt: entry.updatedAt.toISOString(),
   };
+}
+
+// A Json column holds whatever was written to it, including something an older
+// gate wrote or nothing at all. Parsed on the way out rather than asserted:
+// the alternative is a cast, and a cast turns a bad row into a response that
+// fails the client's own validation instead of degrading here.
+//
+// An unparseable ladder becomes null, which is the same answer an entry with no
+// ladder gives, and the reader already handles that by falling back to
+// `imageUrl`. It is not an error worth failing the page over — the image still
+// renders, just without a srcset.
+function toImageRenditions(value: unknown): ImageRendition[] | null {
+  if (value === null || value === undefined) return null;
+  const parsed = z.array(ImageRenditionSchema).safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
 
 function entryConflict(): ConflictException {

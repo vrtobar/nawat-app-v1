@@ -63,6 +63,31 @@ const PrimaryTranslationSchema = z.object({
 });
 
 // -----------------------------------------------------------------------------
+// IMAGE RENDITIONS
+// -----------------------------------------------------------------------------
+
+// One produced size of an entry's approved image. The set of these is what lets
+// a reader build a srcset and reserve a box before the bytes arrive.
+//
+// THE CLIENT CANNOT DERIVE THIS, which is why it is on the wire at all. The
+// processor never upscales, so which widths exist depends on the source: an
+// 800px original yields 320/640/800 and no 960, while a phone photo yields
+// 320/640/960 and no 800. A hardcoded srcset would request an object that does
+// not exist for one of those two. Only the server knows what was produced.
+//
+// `height` is carried per rendition rather than as one aspect ratio because it
+// is the resized pixel height — recomputing it from a ratio would round a
+// second time and could disagree by a pixel, which is a layout shift on the
+// page this exists to stop shifting.
+export const ImageRenditionSchema = z.object({
+  width: z.int().positive(),
+  height: z.int().positive(),
+  url: z.url(),
+});
+
+export type ImageRendition = z.infer<typeof ImageRenditionSchema>;
+
+// -----------------------------------------------------------------------------
 // LIST ITEM
 // Used on:
 //   - Public dictionary search page (/dictionary)
@@ -104,6 +129,14 @@ export const DictionaryEntryDetailSchema = z.object({
   nawatContent: z.string(),
   slug: z.string(), // canonical URL identifier — /dictionary/[slug]
   imageUrl: z.url().nullable(),
+  // The ladder behind `imageUrl`, narrowest first. ADDITIVE: `imageUrl` remains
+  // the primary and remains the only thing a client must understand, so a
+  // caller that ignores this keeps working unchanged.
+  //
+  // Null, never partial. An entry approved before the processor recorded
+  // heights has a URL and no ladder, and a reader with no ladder falls back to
+  // the single `imageUrl` — which is what every reader did before this field.
+  imageRenditions: z.array(ImageRenditionSchema).nullable(),
   isPublished: z.boolean(),
   creator: z.object({
     name: z.string(),

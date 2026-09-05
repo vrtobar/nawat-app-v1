@@ -135,6 +135,87 @@ describe('publish', () => {
     expect((tx.$executeRaw.mock.calls[0]?.[0] as string[]).join('?')).toContain('image_url');
   });
 
+  it('writes the rendition ladder beside image_url, narrowest first', async () => {
+    mediaAsset.findUnique.mockResolvedValue(
+      row({
+        kind: 'IMAGE',
+        translation: null,
+        entry: { id: 'ent_1', nawatContent: 'takat' },
+        derivatives: {
+          primary: '640.webp',
+          files: [
+            { key: '960.webp', contentType: 'image/webp', bytes: 95_020, width: 960, height: 1280 },
+            { key: '320.webp', contentType: 'image/webp', bytes: 21_840, width: 320, height: 427 },
+            { key: '640.webp', contentType: 'image/webp', bytes: 54_818, width: 640, height: 853 },
+          ],
+        },
+      }) as never,
+    );
+
+    await service.publish('usr_admin', 'med_1');
+
+    const sql = (tx.$executeRaw.mock.calls[0]?.[0] as string[]).join('?');
+    const params = tx.$executeRaw.mock.calls[0]?.slice(1);
+    expect(sql).toContain('image_renditions');
+
+    // JSON TEXT, not an object: handed to the driver as an array of objects it
+    // would be encoded as a Postgres array literal rather than JSON.
+    expect(typeof params?.[1]).toBe('string');
+    expect(JSON.parse(params?.[1] as string)).toEqual([
+      { width: 320, height: 427, url: 'https://cdn.staging.nahuat.com/med_1/320.webp' },
+      { width: 640, height: 853, url: 'https://cdn.staging.nahuat.com/med_1/640.webp' },
+      { width: 960, height: 1280, url: 'https://cdn.staging.nahuat.com/med_1/960.webp' },
+    ]);
+  });
+
+  it('writes a NULL ladder when the processor recorded no heights', async () => {
+    // An asset processed before `height` existed. It still publishes and still
+    // gets a URL — the reader falls back to the primary alone, which is exactly
+    // what every reader did before renditions were carried at all.
+    mediaAsset.findUnique.mockResolvedValue(
+      row({
+        kind: 'IMAGE',
+        translation: null,
+        entry: { id: 'ent_1', nawatContent: 'takat' },
+        derivatives: {
+          primary: '640.webp',
+          files: [
+            { key: '320.webp', contentType: 'image/webp', bytes: 21_840, width: 320 },
+            { key: '640.webp', contentType: 'image/webp', bytes: 54_818, width: 640 },
+          ],
+        },
+      }) as never,
+    );
+
+    await service.publish('usr_admin', 'med_1');
+
+    expect(tx.$executeRaw.mock.calls[0]?.slice(1)[1]).toBeNull();
+  });
+
+  it('writes a NULL ladder when only some renditions are measured', async () => {
+    // NULL RATHER THAN THE MEASURABLE SUBSET. A short srcset is indistinguishable
+    // from a complete one to the client, so handing it a ladder missing the
+    // widths it most wanted would be worse than handing it none.
+    mediaAsset.findUnique.mockResolvedValue(
+      row({
+        kind: 'IMAGE',
+        translation: null,
+        entry: { id: 'ent_1', nawatContent: 'takat' },
+        derivatives: {
+          primary: '640.webp',
+          files: [
+            { key: '320.webp', contentType: 'image/webp', bytes: 21_840, width: 320, height: 427 },
+            { key: '640.webp', contentType: 'image/webp', bytes: 54_818, width: 640 },
+          ],
+        },
+      }) as never,
+    );
+
+    await service.publish('usr_admin', 'med_1');
+
+    expect(tx.$executeRaw.mock.calls[0]?.slice(1)[1]).toBeNull();
+  });
+
   it('refuses an asset that is not READY', async () => {
     mediaAsset.findUnique.mockResolvedValue(row({ status: 'PENDING' }) as never);
 
@@ -186,6 +267,31 @@ describe('unpublish', () => {
     for (const call of storage.delete.mock.calls) {
       expect(call[0]).not.toContain('pending/');
     }
+  });
+
+  it('clears the rendition ladder with the URL', async () => {
+    mediaAsset.findUnique.mockResolvedValue(
+      row({
+        isPublished: true,
+        kind: 'IMAGE',
+        translation: null,
+        entry: { id: 'ent_1', nawatContent: 'takat' },
+        derivatives: {
+          primary: '640.webp',
+          files: [
+            { key: '640.webp', contentType: 'image/webp', bytes: 54_818, width: 640, height: 853 },
+          ],
+        },
+      }) as never,
+    );
+
+    await service.unpublish('med_1');
+
+    // Both in one statement: an entry keeping a ladder whose URL is gone would
+    // advertise media the gate has just made unreachable.
+    const sql = (tx.$executeRaw.mock.calls[0]?.[0] as string[]).join('?');
+    expect(sql).toContain('image_url = NULL');
+    expect(sql).toContain('image_renditions = NULL');
   });
 
   it('is idempotent when the asset was never published', async () => {

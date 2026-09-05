@@ -107,6 +107,7 @@ const detailRow = (overrides: Record<string, unknown> = {}) => ({
   nawatContent: 'takat',
   slug: 'takat',
   imageUrl: null,
+  imageRenditions: null,
   isPublished: true,
   createdAt: new Date('2026-08-01T09:00:00.000Z'),
   updatedAt: new Date('2026-08-02T09:00:00.000Z'),
@@ -275,6 +276,43 @@ describe('EntriesService', () => {
         exampleNawat: 'ne takat',
         locale: 'es',
       });
+    });
+
+    it('returns the rendition ladder the gate stored', async () => {
+      entry.findFirst.mockResolvedValue(
+        detailRow({
+          imageUrl: 'https://cdn.nahuat.com/med_1/640.webp',
+          imageRenditions: [
+            { width: 320, height: 427, url: 'https://cdn.nahuat.com/med_1/320.webp' },
+            { width: 640, height: 853, url: 'https://cdn.nahuat.com/med_1/640.webp' },
+          ],
+        }) as never,
+      );
+
+      const result = await service.findById('ent_1', 'es');
+
+      DictionaryEntryDetailSchema.strict().parse(result);
+      expect(result.imageRenditions).toEqual([
+        { width: 320, height: 427, url: 'https://cdn.nahuat.com/med_1/320.webp' },
+        { width: 640, height: 853, url: 'https://cdn.nahuat.com/med_1/640.webp' },
+      ]);
+    });
+
+    it('degrades an unreadable ladder to null rather than failing the page', async () => {
+      // A Json column holds whatever was written to it. The image still renders
+      // from imageUrl; only the srcset is lost, which is not worth a 500.
+      entry.findFirst.mockResolvedValue(
+        detailRow({
+          imageUrl: 'https://cdn.nahuat.com/med_1/640.webp',
+          imageRenditions: [{ width: 640, url: 'https://cdn.nahuat.com/med_1/640.webp' }],
+        }) as never,
+      );
+
+      const result = await service.findById('ent_1', 'es');
+
+      DictionaryEntryDetailSchema.strict().parse(result);
+      expect(result.imageRenditions).toBeNull();
+      expect(result.imageUrl).toBe('https://cdn.nahuat.com/med_1/640.webp');
     });
 
     it('resolves each translation to English, example included', async () => {
