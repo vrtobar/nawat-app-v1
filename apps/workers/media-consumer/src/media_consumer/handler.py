@@ -165,12 +165,13 @@ def _process(asset: dict[str, Any]) -> dict[str, Any]:
             renditions = images.derive(source, work)
             files = [
                 {
-                    "key": key,
+                    "key": r.key,
                     "contentType": "image/webp",
-                    "bytes": storage.upload_derivative(f"{prefix}/{key}", path, "image/webp"),
-                    "width": width,
+                    "bytes": storage.upload_derivative(f"{prefix}/{r.key}", r.path, "image/webp"),
+                    "width": r.width,
+                    "height": r.height,
                 }
-                for key, path, width in renditions
+                for r in renditions
             ]
             return {"primary": images.primary_key(renditions), "files": files}
 
