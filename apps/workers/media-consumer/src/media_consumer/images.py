@@ -1,6 +1,7 @@
 """Image renditions: WebP at several widths, with metadata removed."""
 
 from pathlib import Path
+from typing import NamedTuple
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -11,6 +12,24 @@ from .errors import TerminalError
 # The default is already conservative; it is named here so that raising it is a
 # deliberate act rather than a silent one.
 Image.MAX_IMAGE_PIXELS = 64_000_000
+
+
+class Rendition(NamedTuple):
+    """One produced file. Named rather than a bare tuple because `height` took
+    it to four fields, and `for key, path, width, height in ...` reads as a
+    puzzle at the two call sites that unpack it.
+
+    `height` is carried out of here rather than recomputed by the caller: it is
+    the resized pixel height, so deriving it again from the source's aspect
+    ratio would be a second rounding of the same number and the two could
+    disagree by a pixel. The reader needs it to reserve a box before the image
+    loads, and a box off by one is a layout shift.
+    """
+
+    key: str
+    path: Path
+    width: int
+    height: int
 
 
 def target_widths(source_width: int) -> list[int]:
@@ -25,8 +44,8 @@ def target_widths(source_width: int) -> list[int]:
     return sorted(widths)
 
 
-def derive(source: Path, out_dir: Path) -> list[tuple[str, Path, int]]:
-    """Returns (key, path, width) for each rendition, narrowest first."""
+def derive(source: Path, out_dir: Path) -> list[Rendition]:
+    """Returns a Rendition per produced file, narrowest first."""
     try:
         with Image.open(source) as opened:
             # ⚠️ ORIENTATION IS APPLIED BEFORE METADATA IS DROPPED. A phone
@@ -48,7 +67,7 @@ def derive(source: Path, out_dir: Path) -> list[tuple[str, Path, int]]:
                 rendition = image.resize((width, height), Image.Resampling.LANCZOS)
                 path = out_dir / f"{width}.webp"
                 rendition.save(path, format="WEBP", quality=config.IMAGE_QUALITY, method=6)
-                results.append((f"{width}.webp", path, width))
+                results.append(Rendition(f"{width}.webp", path, width, height))
             return results
     except UnidentifiedImageError as err:
         raise TerminalError("the file is not an image any decoder here recognises") from err
@@ -58,14 +77,14 @@ def derive(source: Path, out_dir: Path) -> list[tuple[str, Path, int]]:
         raise TerminalError(f"the image could not be processed: {err}") from err
 
 
-def primary_key(renditions: list[tuple[str, Path, int]]) -> str:
+def primary_key(renditions: list[Rendition]) -> str:
     """Which rendition the public URL points at.
 
     Named rather than inferred, because the approval gate copies whatever this
     says and writes it onto the entry. Prefers the standard width; falls back
     to the widest produced, which is what a source narrower than 640 leaves.
     """
-    for key, _, width in renditions:
-        if width == config.IMAGE_PRIMARY_WIDTH:
-            return key
-    return renditions[-1][0]
+    for rendition in renditions:
+        if rendition.width == config.IMAGE_PRIMARY_WIDTH:
+            return rendition.key
+    return renditions[-1].key
