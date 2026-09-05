@@ -32,20 +32,25 @@ class TestDerive:
 
         renditions = images.derive(source, tmp_path)
 
-        assert [width for _, _, width in renditions] == [320, 640, 960]
-        for key, path, width in renditions:
-            assert key == f"{width}.webp"
-            with Image.open(path) as out:
+        assert [r.width for r in renditions] == [320, 640, 960]
+        for r in renditions:
+            assert r.key == f"{r.width}.webp"
+            with Image.open(r.path) as out:
                 assert out.format == "WEBP"
-                assert out.width == width
+                assert out.width == r.width
+                # The REPORTED height is the file's height. This is the whole
+                # point of carrying it: a caller that reserved a box from it
+                # must get the box the image actually fills.
+                assert (out.width, out.height) == (r.width, r.height)
 
     def test_preserves_aspect_ratio(self, tmp_path):
         source = _write(tmp_path / "in.jpg", (1600, 800))
 
         renditions = images.derive(source, tmp_path)
 
-        with Image.open(renditions[0][1]) as out:
+        with Image.open(renditions[0].path) as out:
             assert (out.width, out.height) == (320, 160)
+        assert (renditions[0].width, renditions[0].height) == (320, 160)
 
     def test_drops_metadata(self, tmp_path):
         # A real EXIF block, so the assertion is about stripping rather than
@@ -82,11 +87,17 @@ class TestDerive:
 
 class TestPrimaryKey:
     def test_prefers_the_standard_width(self):
-        renditions = [("320.webp", Path("a"), 320), ("640.webp", Path("b"), 640)]
+        renditions = [
+            images.Rendition("320.webp", Path("a"), 320, 180),
+            images.Rendition("640.webp", Path("b"), 640, 360),
+        ]
 
         assert images.primary_key(renditions) == "640.webp"
 
     def test_falls_back_to_the_widest_produced(self):
-        renditions = [("320.webp", Path("a"), 320), ("500.webp", Path("b"), 500)]
+        renditions = [
+            images.Rendition("320.webp", Path("a"), 320, 180),
+            images.Rendition("500.webp", Path("b"), 500, 281),
+        ]
 
         assert images.primary_key(renditions) == "500.webp"

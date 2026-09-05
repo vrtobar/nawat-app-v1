@@ -203,6 +203,13 @@ export const MediaDerivativeFileSchema = z.object({
   // Images only — the width this rendition was resized to, so a client can
   // build a srcset without opening the files.
   width: z.int().positive().optional(),
+  // Images only, and OPTIONAL FOR THE SAME REASON `width` IS — audio carries
+  // neither. It is also optional in the weaker sense that assets processed
+  // before this field existed have a width and no height; the read path treats
+  // a rendition without one as unusable rather than guessing, since the whole
+  // point of carrying it is that the aspect ratio is per-asset and cannot be
+  // inferred from the width alone.
+  height: z.int().positive().optional(),
 });
 export type MediaDerivativeFile = z.infer<typeof MediaDerivativeFileSchema>;
 

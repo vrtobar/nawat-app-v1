@@ -9,8 +9,8 @@ export const metadata: Metadata = {
   // without it Next resolves relative alternates against localhost.
   metadataBase: new URL(process.env.APP_BASE_URL ?? 'http://localhost:3000'),
   title: {
-    default: 'Nahuat — Learn the Nawat language',
-    template: '%s | Nahuat',
+    default: 'Nawat — an interactive dictionary and learning companion',
+    template: '%s | Nawat',
   },
   description:
     'Learn Nawat, the indigenous language of El Salvador — dictionary, lessons, and spaced-repetition review.',
