@@ -164,7 +164,12 @@ jobs:
     environment: production
     runs-on: ubuntu-latest
     steps:
+      # Full history: the consumer check below diffs this commit against the
+      # commit the running Lambda image was built from, which is an arbitrary
+      # earlier point and unreachable in the default shallow clone.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -389,6 +394,68 @@ jobs:
           done
           [ "$failed" -eq 0 ] || exit 1
           echo "Both services are running ${EXPECTED_TAG}."
+
+      # THE MEDIA CONSUMER IS THE ONE THING A PRODUCTION RELEASE CANNOT SHIP BY
+      # ITSELF. This workflow never applies Terraform — the role is read-only on
+      # state by design — and the function's image is set only by
+      # modules/messaging. So a release that changes the consumer needs a human
+      # apply, and nothing here noticed when one did not happen.
+      #
+      # Staging hit exactly this on 2026-09-05 for a different reason (its apply
+      # was gated on `up`): the API and web tier moved, the consumer did not,
+      # and the release's new derivative field met the old consumer's output.
+      # The approval gate then correctly refused to build a partial ladder and
+      # the page rendered as though the feature had never shipped. Nothing
+      # errored. On production there is no equivalent of staging's fix — the
+      # apply cannot be added here — so this check is the whole guard.
+      #
+      # ⚠️ IT IS DELIBERATELY CONDITIONAL, and that is the point. Unlike the ECS
+      # services, the Lambda's tag is EXPECTED to lag: it changes only when a
+      # human applies, so every release that leaves apps/workers/ alone
+      # legitimately runs an older image. Asserting the tag unconditionally
+      # would fail almost every release, and a check that cries wolf is worse
+      # than no check — it gets skipped, and then it is not there on the day it
+      # matters. So the tag is compared only as a shortcut, and the real
+      # question is whether the code inside the image differs.
+      #
+      # Scope is apps/workers/ alone: that is what determines the image's
+      # contents. A Terraform layer lagging the code more generally is a
+      # broader problem with its own backlog entry, not this step's job.
+      - name: Verify the media consumer image is current
+        env:
+          EXPECTED_TAG: prod-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          failed=0
+          for fn in nahuat-production-media-consumer nahuat-production-media-reaper; do
+            image=$(aws lambda get-function --function-name "$fn" \
+                     --query 'Code.ImageUri' --output text)
+            running_tag=${image##*:}
+
+            if [ "$running_tag" = "$EXPECTED_TAG" ]; then
+              printf '%-38s %s (current)\n' "$fn" "$running_tag"
+              continue
+            fi
+
+            # An older tag is only a problem if what it was built from differs.
+            running_sha=${running_tag#prod-}
+            if ! git cat-file -e "${running_sha}^{commit}" 2>/dev/null; then
+              printf '::error::%s is running %s, a commit not in this history — cannot tell whether it is current\n' \
+                "$fn" "$running_tag"
+              failed=1
+              continue
+            fi
+
+            if git diff --quiet "$running_sha" "$GITHUB_SHA" -- apps/workers/; then
+              printf '%-38s %s (older, identical consumer)\n' "$fn" "$running_tag"
+            else
+              printf '::error::%s is running %s but apps/workers/ changed since then — apply Terraform against production to update it, then re-run this deploy\n' \
+                "$fn" "$running_tag"
+              failed=1
+            fi
+          done
+          [ "$failed" -eq 0 ] || exit 1
+          echo "The consumer image matches this release."
 
       # services-stable used to prove database connectivity as a side effect:
       # the ALB health check ran the Prisma indicator, so no task reached steady
