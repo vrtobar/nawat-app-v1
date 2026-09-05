@@ -101,7 +101,20 @@ export class ReviewService {
       throw mediaDerivativesInvalid('the approved file is not readable after copying');
     }
 
-    const url = cdnUrlFor(this.config.getOrThrow<string>('CDN_URL'), asset.id, derivatives.primary);
+    const cdnBaseUrl = this.config.getOrThrow<string>('CDN_URL');
+    const url = cdnUrlFor(cdnBaseUrl, asset.id, derivatives.primary);
+
+    // The ladder the reader needs to build a srcset and reserve a box, copied
+    // onto the entry so the public read stays a single query. See the column's
+    // note in schema.prisma for why it is denormalised rather than joined.
+    //
+    // ALL OR NOTHING, deliberately. A rendition is usable only with both
+    // dimensions: the width picks it and the height reserves the box, and a
+    // partial ladder would make the page shift for exactly the assets it
+    // could not measure. Assets processed before `height` existed therefore
+    // yield null here and the page falls back to `imageUrl` — which is the
+    // pre-existing behaviour, not a regression.
+    const renditions = buildRenditions(cdnBaseUrl, asset.id, derivatives);
 
     // One transaction. The asset's approval and the URL that depends on it must
     // not be separable — a published asset whose parent has no URL is invisible,
@@ -120,7 +133,9 @@ export class ReviewService {
         `;
       } else {
         await tx.$executeRaw`
-          UPDATE entries SET image_url = ${url} WHERE id = ${asset.entry?.id}
+          UPDATE entries
+          SET image_url = ${url}, image_renditions = ${renditions}::jsonb
+          WHERE id = ${asset.entry?.id}
         `;
       }
     });
@@ -151,7 +166,9 @@ export class ReviewService {
         `;
       } else if (asset.entry) {
         await tx.$executeRaw`
-          UPDATE entries SET image_url = NULL WHERE id = ${asset.entry.id}
+          UPDATE entries
+          SET image_url = NULL, image_renditions = NULL
+          WHERE id = ${asset.entry.id}
         `;
       }
     });
@@ -216,4 +233,41 @@ function parseDerivatives(value: unknown): MediaDerivatives {
 function tryParseDerivatives(value: unknown): MediaDerivatives | undefined {
   const result = MediaDerivativesSchema.safeParse(value);
   return result.success ? result.data : undefined;
+}
+
+// The rendition ladder as the public shape carries it, or null when this asset
+// cannot supply one.
+//
+// NULL RATHER THAN A PARTIAL LADDER. Audio has no widths at all, and an image
+// processed before `height` existed has widths without heights; in both cases
+// the honest answer is "no ladder" and the reader falls back to `imageUrl`.
+// Filtering to the measurable subset instead would be worse than either: it
+// would hand a client a srcset missing the renditions it most wanted, and the
+// client cannot tell a short ladder from a complete one.
+//
+// Sorted narrowest first — srcset does not care, but a stable order keeps the
+// stored JSON diffable and matches the order the processor produced them in.
+// Returns JSON TEXT, not an object: the write is a raw query, and handing the
+// driver an array of objects as a bind parameter gets it encoded as a Postgres
+// array literal rather than JSON. Stringifying here and casting in the SQL is
+// what makes the column receive what this function means.
+function buildRenditions(
+  cdnBaseUrl: string,
+  assetId: string,
+  derivatives: MediaDerivatives,
+): string | null {
+  const measured = derivatives.files.filter(
+    (file) => file.width !== undefined && file.height !== undefined,
+  );
+  if (measured.length !== derivatives.files.length || measured.length === 0) return null;
+
+  const ladder = measured
+    .map((file) => ({
+      width: file.width as number,
+      height: file.height as number,
+      url: cdnUrlFor(cdnBaseUrl, assetId, file.key),
+    }))
+    .sort((a, b) => a.width - b.width);
+
+  return JSON.stringify(ladder);
 }

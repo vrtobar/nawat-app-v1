@@ -225,6 +225,26 @@ model Entry {
   // every future query has to remember. Unpublishing clears it.
   imageUrl     String?   @map("image_url")
 
+  // The rendition ladder behind `imageUrl`, as [{width, height, url}] narrowest
+  // first. WRITTEN AND CLEARED IN THE SAME TRANSACTION AS `imageUrl`, by the
+  // same gate and nothing else, so the assertion above covers both.
+  //
+  // DENORMALISED ON PURPOSE. The set also lives on MediaAsset.derivatives, and
+  // reading it from there would mean joining the public path to a row whose
+  // derivatives are populated at READY — before approval — so the join would
+  // have to re-check isPublished and rebuild the three-way assertion this
+  // column exists to collapse. Copying it here at approval keeps the public
+  // read a single query with no join.
+  //
+  // Json rather than a child table, for the reason MediaAsset.derivatives is:
+  // nothing queries inside it, the shape follows the pipeline, and a table
+  // would buy queryability no caller wants at the price of a migration per
+  // width.
+  //
+  // Null on entries approved before this column existed, and on any asset whose
+  // renditions lack a height. A reader with no ladder falls back to `imageUrl`.
+  imageRenditions Json? @map("image_renditions")
+
   // The FK lives here rather than on MediaAsset, so an asset may exist before
   // it finds an entry (uploads are not attached at creation) and the public
   // read needs no join. @unique: one asset serves at most one entry.
