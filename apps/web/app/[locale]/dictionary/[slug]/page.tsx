@@ -86,6 +86,16 @@ export default async function EntryDetailPage({ params }: { params: Promise<Para
   const t = STRINGS[locale];
   const pos = POS_LABELS[locale];
 
+  // The rendition `imageUrl` actually points at, found BY URL rather than by
+  // assuming the standard width: the processor falls back to the widest it
+  // produced when the source is narrower than 640, so the primary of a small
+  // image is not 640 and hardcoding that would reserve a box of the wrong shape.
+  //
+  // Its dimensions are what `width`/`height` state, and with `h-auto w-full`
+  // they act as an aspect ratio rather than a size — the box is reserved at the
+  // right shape before any byte arrives, whichever rendition the srcset picks.
+  const primaryRendition = entry.imageRenditions?.find((r) => r.url === entry.imageUrl) ?? null;
+
   // schema.org DefinedTerm: marks the page as a dictionary entry for the Nawat
   // word (ISO 639-3 'ppl'), which is the SEO lever that matters more than the URL.
   const jsonLd = {
@@ -115,24 +125,38 @@ export default async function EntryDetailPage({ params }: { params: Promise<Para
           rather than inside the list below. `imageUrl` hangs off the entry and
           `audioUrl` off each translation, and the layout follows that ownership.
 
-          A plain <img>, and next/image is not an option rather than merely
-          unnecessary: it requires width and height (or fill), and
-          DictionaryEntryDetail carries the URL and no dimensions. Nothing here
-          can state an intrinsic ratio, so the image reflows as it loads. That
-          is a known cost of the shape, not an oversight.
+          `imageRenditions` carries the ladder the processor produced, with each
+          rendition's own height. The client cannot derive it: the processor
+          never upscales, so an 800px source yields 320/640/800 and a phone photo
+          320/640/960, and a hardcoded srcset would request an object that does
+          not exist for one of them.
 
-          The consumer emits WebP at up to three widths with the 640 as primary,
-          so there is a srcset to be had — but the widths it produces depend on
-          the source (it never upscales), so a client cannot derive the URLs and
-          the shape exposes only the primary. Both the srcset and the reserved
-          box need the same thing: the rendition set, with dimensions, on the
-          entry. */}
+          NULL IS A REAL CASE, not a defensive check — an entry approved before
+          the processor recorded heights has a URL and no ladder. It then renders
+          exactly as it did before this existed: the primary alone, no srcset,
+          and a reflow as it loads.
+
+          `sizes` says what the CSS already says: capped at max-w-md (28rem =
+          448px) and full-width below that. Getting it wrong is not cosmetic —
+          the browser picks from it before layout, so a lie here downloads the
+          wrong rendition and the srcset stops paying for itself.
+
+          Still a plain <img>. next/image is now possible — the dimensions exist
+          — but it would route these through the optimizer, re-encoding files the
+          pipeline has already sized and stripped. That is a separate decision,
+          not a consequence of this one. */}
       {entry.imageUrl && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={entry.imageUrl}
+          {...(primaryRendition && {
+            srcSet: entry.imageRenditions!.map((r) => `${r.url} ${r.width}w`).join(', '),
+            sizes: '(max-width: 448px) 100vw, 448px',
+            width: primaryRendition.width,
+            height: primaryRendition.height,
+          })}
           alt={`${t.illustration} ${entry.nawatContent}`}
-          className="mt-6 w-full max-w-md rounded-md border border-gray-100"
+          className="mt-6 h-auto w-full max-w-md rounded-md border border-gray-100"
         />
       )}
 
