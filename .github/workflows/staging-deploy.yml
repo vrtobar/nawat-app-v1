@@ -17,7 +17,7 @@ on:
         type: choice
         options:
           - up # build, apply infrastructure, migrate
-          - deploy # build, migrate, roll services onto new code
+          - deploy # build, migrate, update the lambdas, roll services onto new code
           - seed # load dev sample data (db:seed:dev) into a running environment
           - down # destroy the application layer
         default: deploy
@@ -188,6 +188,42 @@ jobs:
         if: inputs.action == 'up'
         run: |
           terraform -chdir="$TF_DIR" apply -auto-approve -input=false \
+            -var "image_tag=staging-${GITHUB_SHA}"
+
+      # THE LAMBDAS ARE THE ONLY COMPUTE A DEPLOY CANNOT ROLL. The ECS services
+      # get new task definitions registered and rolled by the deploy job below,
+      # and they carry ignore_changes = [task_definition] precisely so Terraform
+      # stays out of that. Nothing does the equivalent for the media consumer
+      # and reaper: their image is set once, by modules/messaging, as
+      # "${ecr_media_consumer_url}:${image_tag}". So without this step a deploy
+      # moves the API and the web tier and leaves both functions on whatever the
+      # last `up` installed.
+      #
+      # That happened on 2026-09-05. Deploying ea1d0cb moved api and web and
+      # left both Lambdas on a0e9436, with every job green — this job included,
+      # because Init and Read outputs both succeed while Apply is skipped. The
+      # release added a field to the image derivatives, so the new API met the
+      # old consumer's output and produced entries the page rendered as if the
+      # feature had never shipped. Nothing errored.
+      #
+      # ⚠️ -target IS A WORKAROUND, NOT A PREFERENCE, and it should be deleted
+      # rather than kept. A full apply against a running layer plans
+      # `3 to add, 0 to change, 3 to destroy` — the ECS task definitions read as
+      # drift over structural container fields (hostPort, systemControls,
+      # volumesFrom) and force replacement. Measured on staging 2026-09-05 and
+      # on production 2026-08-22; BACKLOG carries it as "ECS task-definition
+      # resources drift, so a full apply against live infra plans destroys".
+      # When that is fixed and a full apply plans 0 to destroy, drop the
+      # -target and let this run against the whole layer.
+      #
+      # Scoped to module.messaging rather than the two function resources: the
+      # module is the boundary that owns them, so a resource added to it later
+      # is covered without anyone remembering to widen a list here.
+      - name: Update the Lambdas
+        if: inputs.action == 'deploy'
+        run: |
+          terraform -chdir="$TF_DIR" apply -auto-approve -input=false \
+            -target=module.messaging \
             -var "image_tag=staging-${GITHUB_SHA}"
 
       # The tag is irrelevant to a destroy but the variable is still required,
@@ -457,6 +493,43 @@ jobs:
           done
           [ "$failed" -eq 0 ] || exit 1
           echo "Both services are running ${EXPECTED_TAG}."
+
+      # THE SAME CHECK FOR THE COMPUTE THAT IS NOT AN ECS SERVICE. The step
+      # above cannot see the Lambdas — it reads task definitions, and a function
+      # has none — so a consumer left on an older image passes it untouched.
+      # That is not hypothetical: on 2026-09-05 a deploy of ea1d0cb finished
+      # green, this job included, with both functions still on a0e9436.
+      #
+      # It stays even though the step that installs them now runs on a deploy,
+      # because the two answer different questions. That one makes the update
+      # happen; this one establishes that it did — whether it was skipped, the
+      # apply failed, or someone moved the image by hand.
+      #
+      # Names rather than Terraform outputs: the module builds them as
+      # "${var.prefix}-media-consumer" and "${var.prefix}-media-reaper", and
+      # this workflow already names its environment in TF_DIR and EXPECTED_TAG.
+      # Adding outputs would mean a full apply before the workflow could read
+      # them, which is the thing being worked around here.
+      - name: Verify the Lambdas are running the image deployed
+        env:
+          EXPECTED_TAG: staging-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          failed=0
+          for fn in nahuat-staging-media-consumer nahuat-staging-media-reaper; do
+            image=$(aws lambda get-function --function-name "$fn" \
+                     --query 'Code.ImageUri' --output text)
+            running_tag=${image##*:}
+            if [ "$running_tag" = "$EXPECTED_TAG" ]; then
+              printf '%-34s %s\n' "$fn" "$running_tag"
+            else
+              printf '::error::%s is running %s, expected %s — the function was not updated\n' \
+                "$fn" "$running_tag" "$EXPECTED_TAG"
+              failed=1
+            fi
+          done
+          [ "$failed" -eq 0 ] || exit 1
+          echo "Both functions are running ${EXPECTED_TAG}."
 
       # Without this the failure above is just a timeout, and the actual reason
       # lives in the console. Task placement failures in particular (secrets,
