@@ -12,6 +12,10 @@ not get one.
 They are not updated as the code changes. A decision that is superseded gets a
 new record and the old one is marked as such, so the history stays readable.
 
+**This repository is retired and these records are closed** — see
+[ADR 23](0023-retiring-the-first-implementation.md). They describe what was
+decided at their dates and will not be revised.
+
 Records 3 through 8, and 10 onward, were written after the fact, from the code
 and from the decisions' own history. They carry the date of the decision
 alongside the date of the record.
@@ -40,3 +44,4 @@ alongside the date of the record.
 | [20](0020-media-assets-provenance-and-the-approval-gate.md)  | Media assets: provenance, state, and the ADMIN gate       | Accepted                                                                          |
 | [21](0021-the-public-read-path.md)                           | The public read path: topology, caching, anonymous access | Accepted                                                                          |
 | [22](0022-dictionary-and-flashcards-as-the-first-product.md) | Dictionary and flashcards as the first product            | Accepted                                                                          |
+| [23](0023-retiring-the-first-implementation.md)              | Retiring the first implementation                         | Accepted                                                                          |

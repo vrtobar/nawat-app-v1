@@ -5,6 +5,16 @@ _An interactive dictionary and learning companion._
 A language learning app for Nawat — a critically endangered indigenous
 language of El Salvador with roughly 100 remaining speakers.
 
+## Note
+
+This repository is the first version of the project and is no longer developed.
+It documents the original architecture — AWS ECS and Fargate, Terraform, and
+authentication built in-house — which remains valid as a reference
+implementation. Development has since moved to a separate codebase.
+
+The reasoning is in
+[ADR 23](docs/adr/0023-retiring-the-first-implementation.md).
+
 ## About
 
 This project aims to make learning Nawat accessible through an interactive,
@@ -41,7 +51,11 @@ Architecture decisions — what was chosen, what was rejected, and why — are i
 
 ## Status
 
-🚧 Under active development
+**Retired.** Version 1 is complete and archived. Everything described here —
+authentication, the dictionary, the media pipeline and the delivery pipeline —
+was built and ran in both environments. Flashcards and the learning hierarchy
+were not built; see [ADR 22](docs/adr/0022-dictionary-and-flashcards-as-the-first-product.md)
+and [ADR 23](docs/adr/0023-retiring-the-first-implementation.md).
 
 ## Licensing
 
