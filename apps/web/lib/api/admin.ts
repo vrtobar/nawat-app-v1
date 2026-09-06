@@ -10,6 +10,7 @@ import {
   type UpdateTranslation,
   UserProfileSchema,
 } from '@nahuat/shared';
+import { cache } from 'react';
 
 import { authedItem, authedPage, mutate } from './client';
 
@@ -21,9 +22,20 @@ import { authedItem, authedPage, mutate } from './client';
 // resolved per request"), and this endpoint reads that same row. So what the
 // panel shows and what the API will permit cannot disagree — a promotion is
 // visible here on the next request, with no new token and no re-login.
-export function getMe() {
-  return authedItem('/users/me', UserProfileSchema);
-}
+// MEMOISED PER REQUEST, not cached across them. Two Server Components read the
+// role on an admin page render — the layout, to gate the shell, and the entries
+// page, to decide whether a publish button exists — which was two HTTP round
+// trips to the API for one row on every render.
+//
+// React's own `fetch` dedup does not cover it: `authedItem` sends
+// `cache: 'no-store'`, which opts out of the cache dedup relies on. Removing
+// that is not an option — the response varies by user and must never be shared
+// between requests — so the memoisation goes here instead, where `cache()`
+// scopes it to a single render pass and it expires with the request.
+//
+// The result: still fresh per request, so a role change is visible on the next
+// one exactly as before, and ADR 13's per-request resolution is unaffected.
+export const getMe = cache(() => authedItem('/users/me', UserProfileSchema));
 
 // GET /admin/entries — entries including drafts, which no public read returns.
 //
