@@ -69,6 +69,10 @@ jobs:
               # The generated contracts are an output of packages/shared, so a
               # hand-edit here has to face the drift check in the quality job.
               - 'apps/workers/media-consumer/contracts/**'
+              # The quality job runs `npm run audit`, which is this script. It
+              # belongs here rather than only under `workflows` because this is
+              # where it is actually EXECUTED — shellcheck reads it, this runs it.
+              - '.github/scripts/audit-gate.sh'
               - '.github/workflows/ci.yml'
             # The whole worker tree. It is single-language by design (ADR 11
             # plus ADR 19's deletions), which is what lets this be one path
@@ -96,16 +100,23 @@ jobs:
               - 'apps/workers/*/pyproject.toml'
               # The smoke test itself. Without this a change to the script runs
               # no image job, so the check would be edited without ever being
-              # exercised. NOTE the same is true of the other gate scripts under
-              # .github/scripts — no filter matches them at all.
+              # exercised. The other scripts under .github/scripts are covered
+              # by the `workflows` filter below.
               - '.github/scripts/smoke-image.sh'
               - '.github/workflows/ci.yml'
             # Every workflow, not just ci.yml. The deploy workflows were
             # previously matched by no filter at all, so a pull request
             # changing only one of them ran zero jobs and still reported
             # "All checks passed".
+            # Every workflow, and the scripts they call. Those scripts matched
+            # no filter at all, so a pull request changing only one of them ran
+            # zero jobs and still reported "All checks passed" — the same hole
+            # this filter was widened to close for the deploy workflows.
+            # scan-gate.sh in particular runs only inside a deploy, so CI cannot
+            # execute it and shellcheck is the whole of its coverage.
             workflows:
               - '.github/workflows/**'
+              - '.github/scripts/**'
 
   quality:
     name: Lint, typecheck, test
@@ -373,6 +384,14 @@ jobs:
         uses: docker://rhysd/actionlint:1.7.7
         with:
           args: -color
+
+      # actionlint shellchecks the `run:` blocks inside workflows and has
+      # nothing to say about a standalone .sh file, so matching the filter above
+      # without this would run a job that reports on the wrong thing — which is
+      # the failure mode the `node` filter's comment already warns about.
+      # shellcheck is preinstalled on the runner.
+      - name: Shellcheck the gate scripts
+        run: shellcheck .github/scripts/*.sh
 
   # The one check to mark required in branch protection. It always runs, so it
   # always reports, whatever the filters above decided. `result` is used rather
