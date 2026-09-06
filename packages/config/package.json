@@ -4,6 +4,9 @@
   "private": true,
   "license": "MIT",
   "type": "module",
+  "scripts": {
+    "lint": "eslint ."
+  },
   "exports": {
     "./eslint/base": "./eslint/base.js",
     "./eslint/node": "./eslint/node.js",
