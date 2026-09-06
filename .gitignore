@@ -21,9 +21,14 @@ packages/database/src/generated/
 coverage/
 
 # Environment variables
-.env
-.env.local
-.env.*.local
+# Everything, then the one exception. The enumerated form this replaces
+# (.env, .env.local, .env.*.local) covered the names anyone thought of and
+# missed the ones they did not: a backup written beside a real file —
+# `cp .env.local .env.local.bak-$(date ...)` — matched none of them, so it
+# showed as untracked rather than ignored, one `git add -A` from a public
+# repository. Only .env.example files are tracked, so denying by default costs
+# nothing and stops the next variant needing a new line here.
+.env*
 !.env.example
 
 # Terraform
