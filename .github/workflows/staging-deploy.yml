@@ -12,11 +12,21 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: What to do
+        # This string is the only one GitHub shows on the dispatch form —
+        # per-option comments below are visible to whoever reads the file and to
+        # nobody clicking the button, which is when the mistake gets made.
+        description: 'What to do (use deploy for code changes; up will NOT roll a running service)'
         required: true
         type: choice
         options:
-          - up # build, apply infrastructure, migrate
+          # `up` does NOT roll a running service onto a new task definition.
+          # Terraform creates the new revision, the services carry
+          # ignore_changes = [task_definition] so it is not pointed at, and the
+          # job that moves them is gated on `deploy`. From nothing that is
+          # invisible — the service is created and takes whatever revision
+          # exists — so the second `up` against a live layer is where a task
+          # definition change silently does not arrive. Use `deploy` for that.
+          - up # build, apply infrastructure, migrate — see the note above
           - deploy # build, migrate, update the lambdas, roll services onto new code
           - seed # load dev sample data (db:seed:dev) into a running environment
           - down # destroy the application layer
