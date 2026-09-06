@@ -213,9 +213,25 @@ resource "aws_security_group" "redis" {
 # The event source mapping invokes the function through the Lambda service
 # plane, so nothing needs to reach these ENIs inbound.
 #
-# Outbound covers RDS, Redis, and 443 via NAT. No consumer uses that egress
-# today — ADR 19 deleted the one that called the CloudFront API — and it is
-# reviewed when modules/messaging places the first real function.
+# Outbound covers RDS and 443 via NAT, and a real consumer now uses both. The
+# media consumer reads Postgres directly and reaches S3, Secrets Manager and
+# SQS over 443. Only S3 has a gateway endpoint and it is behind
+# enable_vpc_endpoints, so the other two traverse NAT whether or not that is on.
+#
+# REDIS IS NOT IN THAT LIST ANY MORE. The egress was written when this group
+# also had ingress to the Redis group, for the cache-invalidation consumer ADR
+# 19 deleted; that ingress is gone and the media consumer touches no cache. The
+# note that used to sit here said no consumer used this egress at all, which
+# stopped being true when modules/messaging placed the first real function.
+#
+# ⚠️ THE `description` STRINGS BELOW STILL SAY REDIS AND THAT IS DELIBERATE.
+# A security group's description cannot be modified in place — Terraform plans
+# `must be replaced` for a one-word edit, measured on staging's foundation
+# 2026-09-05. The Lambdas that carry this group are declared in the APPLICATION
+# layer while the group itself is here, so a replacement would have to delete a
+# group still attached to live ENIs in a layer this apply does not touch. The
+# wording is wrong; correcting it is not worth a cross-layer replacement, and it
+# will come right for free the next time an environment is built from nothing.
 # -----------------------------------------------------------------------------
 resource "aws_security_group" "lambda" {
   name        = "${var.prefix}-lambda"

@@ -1,14 +1,13 @@
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { execFileSync } from 'node:child_process';
-
 import { PrismaPg } from '@prisma/adapter-pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { PrismaClient } from '../../src/generated/prisma/client';
 import { importFile } from '../../prisma/import-core';
+import { PrismaClient } from '../../src/generated/prisma/client';
 import { createTestClient, TEST_DATABASE_URL } from './setup';
 
 // The regression guard for the defect that made this suite worth building.

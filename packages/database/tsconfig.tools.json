@@ -8,6 +8,12 @@
   //                       studio and db seed, including the ECS migration task
   //   prisma/seed.ts    — runs as an ECS task via a command override
   //
+  // NOT test/** or the vitest configs. They are ESM and use `import.meta`,
+  // which this package's CommonJS output cannot express — adding them here
+  // yields TS1470 on every one. They are linted without type-aware rules
+  // instead; see eslint.config.mjs. Type-checking them needs a separate config
+  // with an ESM module setting, which is a larger change than lint coverage.
+  //
   // They cannot go in tsconfig.json: rootDir is src and outDir is dist, so
   // including files above rootDir breaks the emit layout and would ship them
   // into dist. Same split as tsconfig.build.json — a wide config checks, a

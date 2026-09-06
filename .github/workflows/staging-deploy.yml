@@ -12,11 +12,21 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: What to do
+        # This string is the only one GitHub shows on the dispatch form —
+        # per-option comments below are visible to whoever reads the file and to
+        # nobody clicking the button, which is when the mistake gets made.
+        description: 'What to do (use deploy for code changes; up will NOT roll a running service)'
         required: true
         type: choice
         options:
-          - up # build, apply infrastructure, migrate
+          # `up` does NOT roll a running service onto a new task definition.
+          # Terraform creates the new revision, the services carry
+          # ignore_changes = [task_definition] so it is not pointed at, and the
+          # job that moves them is gated on `deploy`. From nothing that is
+          # invisible — the service is created and takes whatever revision
+          # exists — so the second `up` against a live layer is where a task
+          # definition change silently does not arrive. Use `deploy` for that.
+          - up # build, apply infrastructure, migrate — see the note above
           - deploy # build, migrate, update the lambdas, roll services onto new code
           - seed # load dev sample data (db:seed:dev) into a running environment
           - down # destroy the application layer
@@ -530,6 +540,40 @@ jobs:
           done
           [ "$failed" -eq 0 ] || exit 1
           echo "Both functions are running ${EXPECTED_TAG}."
+
+      # Production has done this since the health split; staging never has, so
+      # a staging deploy of an API that could not reach its database reported
+      # success. The ALB health check is liveness only and deliberately runs no
+      # dependency check, so nothing else here would notice.
+      #
+      # It is worth more than it was: until the indicator behind this endpoint
+      # started reading a table, it ran `SELECT 1` and answered 200 against a
+      # database with no schema at all — so calling it from here would have
+      # spread a signal that could not see the failure it exists to catch.
+      #
+      # A smoke check, not a guarantee: one request through CloudFront reaches
+      # one task, where the ALB probes every task. It still catches what
+      # actually goes wrong — a bad secret or the wrong security group on the
+      # new task definition, which is uniform across tasks.
+      - name: Verify readiness
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            code=$(curl -s -o /tmp/ready.json -w '%{http_code}' --max-time 20 \
+              https://api.staging.nahuat.com/api/health/ready || echo 000)
+            if [ "$code" = "200" ]; then
+              echo "readiness ok"
+              cat /tmp/ready.json
+              exit 0
+            fi
+            echo "attempt $attempt: HTTP $code"
+            if [ "$attempt" -lt 5 ]; then
+              sleep 10
+            fi
+          done
+          echo "::error::readiness check failed after 5 attempts"
+          cat /tmp/ready.json 2>/dev/null || true
+          exit 1
 
       # Without this the failure above is just a timeout, and the actual reason
       # lives in the console. Task placement failures in particular (secrets,
