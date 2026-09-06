@@ -26,6 +26,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.tools.json",
     "generate": "prisma generate",
     "postinstall": "prisma generate",

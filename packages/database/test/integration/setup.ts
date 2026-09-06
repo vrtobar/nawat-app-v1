@@ -20,4 +20,4 @@ export async function assertSafeTarget(prisma: PrismaClient): Promise<void> {
   await assertSafeTestDatabase(prisma);
 }
 
-export { TEST_DATABASE_URL, REQUIRED_TEST_DATABASE as REQUIRED_DATABASE };
+export { REQUIRED_TEST_DATABASE as REQUIRED_DATABASE, TEST_DATABASE_URL };
