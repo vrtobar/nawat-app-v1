@@ -134,8 +134,12 @@ export const API_ERROR_CODES = {
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 
   // Dictionary
+  //
+  // ENTRY_HAS_TRANSLATIONS was removed here: the entry delete became a
+  // transactional cascade rather than require-empty, so nothing raises it. A
+  // code that is published and never thrown reads as contract — the next
+  // reader asks when a delete returns it, and the answer is never.
   ENTRY_NOT_FOUND: 'ENTRY_NOT_FOUND',
-  ENTRY_HAS_TRANSLATIONS: 'ENTRY_HAS_TRANSLATIONS',
   ENTRY_SLUG_CONFLICT: 'ENTRY_SLUG_CONFLICT',
   TRANSLATION_NOT_FOUND: 'TRANSLATION_NOT_FOUND',
   TRANSLATION_IN_USE: 'TRANSLATION_IN_USE',
